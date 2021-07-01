@@ -33,8 +33,7 @@ impl<'de> Deserialize<'de> for Id {
         D: Deserializer<'de>,
     {
         enum Field {
-            ExchangeId,
-            AccountNumber,
+            ExchangeAccountId,
         }
 
         impl<'de> Deserialize<'de> for Field {
@@ -56,8 +55,7 @@ impl<'de> Deserialize<'de> for Id {
                         E: de::Error,
                     {
                         match value {
-                            "exchange_id" => Ok(Field::ExchangeId),
-                            "account_number" => Ok(Field::AccountNumber),
+                            "exchange_id" => Ok(Field::ExchangeAccountId),
                             _ => Err(de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -80,31 +78,29 @@ impl<'de> Deserialize<'de> for Id {
             where
                 V: MapAccess<'de>,
             {
-                let mut exchange_id = None;
-                let mut account_number = None;
+                let mut whole_field = None;
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::ExchangeId => {
-                            if exchange_id.is_some() {
+                        Field::ExchangeAccountId => {
+                            if whole_field.is_some() {
                                 return Err(de::Error::duplicate_field("exchange_id"));
                             }
-                            exchange_id = Some(map.next_value()?);
-                        }
-                        Field::AccountNumber => {
-                            if account_number.is_some() {
-                                return Err(de::Error::duplicate_field("account_number"));
-                            }
-                            account_number = Some(map.next_value()?);
+                            whole_field = Some(map.next_value()?);
                         }
                     }
                 }
-                let exchange_id =
-                    exchange_id.ok_or_else(|| de::Error::missing_field("exchange_id"))?;
-                let account_number =
-                    account_number.ok_or_else(|| de::Error::missing_field("account_number"))?;
+                let whole_field: String =
+                    whole_field.ok_or_else(|| de::Error::missing_field("exchange_id"))?;
 
-                dbg!(&exchange_id);
-                dbg!(&account_number);
+                let fields: Vec<&str> = whole_field.split('#').collect();
+                if fields.is_empty() {
+                    return Err(de::Error::unknown_field(&whole_field, FIELDS));
+                }
+
+                let exchange_id = fields[0].to_owned();
+                let account_number = fields[1]
+                    .parse()
+                    .map_err(|_| de::Error::unknown_field(&whole_field, FIELDS))?;
 
                 Ok(Id::new(exchange_id, account_number))
             }
