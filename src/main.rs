@@ -1,8 +1,10 @@
 use anyhow::Result;
 use de::MapAccess;
+use itertools::Itertools;
+use regex::Regex;
 use serde::de::{self, Deserializer, Visitor};
 use serde::Deserialize;
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct Id {
@@ -10,6 +12,9 @@ pub struct Id {
 
     pub account_number: u8,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdParseError(String);
 
 impl Id {
     pub fn new(exchange_id: String, account_number: u8) -> Self {
@@ -24,6 +29,34 @@ impl Id {
             exchange_id: "test".to_owned(),
             account_number: 0,
         }
+    }
+}
+
+impl FromStr for Id {
+    type Err = IdParseError;
+
+    fn from_str(text: &str) -> std::result::Result<Self, Self::Err> {
+        let regex =
+            Regex::new(r"(^[A-Za-z]+)(\d+$)").map_err(|err| IdParseError(err.to_string()))?;
+
+        let captures = regex
+            .captures(text)
+            .ok_or(IdParseError("Invalid format".into()))?
+            .iter()
+            .collect_vec();
+
+        let exchange_id = captures[1]
+            .ok_or(IdParseError("Invalid format".into()))?
+            .as_str()
+            .into();
+
+        let number = captures[2]
+            .ok_or(IdParseError("Invalid format".into()))?
+            .as_str()
+            .parse()
+            .map_err(|x| IdParseError(format!("Can't parse exchange account number: {}", x)))?;
+
+        Ok(Id::new(exchange_id, number))
     }
 }
 
@@ -92,17 +125,8 @@ impl<'de> Deserialize<'de> for Id {
                 let whole_field: String =
                     whole_field.ok_or_else(|| de::Error::missing_field("exchange_id"))?;
 
-                let fields: Vec<&str> = whole_field.split('#').collect();
-                if fields.is_empty() {
-                    return Err(de::Error::unknown_field(&whole_field, FIELDS));
-                }
-
-                let exchange_id = fields[0].to_owned();
-                let account_number = fields[1]
-                    .parse()
-                    .map_err(|_| de::Error::unknown_field(&whole_field, FIELDS))?;
-
-                Ok(Id::new(exchange_id, account_number))
+                Id::from_str(&whole_field)
+                    .map_err(|_| de::Error::unknown_field(&whole_field, FIELDS))
             }
         }
 
@@ -111,11 +135,17 @@ impl<'de> Deserialize<'de> for Id {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Settings {
+    pub test: i32,
+    pub exchange_id: Id,
+}
+
 fn main() -> Result<()> {
     let mut config = config::Config::default();
     config.merge(config::File::with_name("config.toml"))?;
 
-    let deserialized: Id = config.try_into()?;
+    let deserialized: Settings = config.try_into()?;
     dbg!(&deserialized);
     println!("Hello, world!");
 
